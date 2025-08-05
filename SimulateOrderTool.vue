@@ -1,0 +1,472 @@
+<template>
+  <div class="simulate-order-tool">
+    <!-- 页面标题 -->
+    <div class="page-header">
+      <h2>模拟下单测试工具</h2>
+    </div>
+    
+    <!-- 下单参数配置区 -->
+    <el-card class="config-card" shadow="hover">
+      <template #header>
+        <div class="card-header">
+          <span>下单参数配置</span>
+        </div>
+      </template>
+      
+      <el-form :model="orderForm" label-width="120px" class="order-form">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="商户号">
+              <el-input v-model="orderForm.merchantNo" placeholder="请输入商户号" @input="onMerchantChange" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="商户密钥">
+              <el-input v-model="orderForm.apiKey" placeholder="请输入商户密钥" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="支付产品编码">
+              <el-input v-model="orderForm.paymentCode" placeholder="请输入支付产品编码" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="24">
+            <el-form-item label="使用随机金额">
+              <el-switch v-model="orderForm.useRandomAmount" @change="onRandomAmountChange" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <!-- 金额配置区域 -->
+        <el-row :gutter="20" v-if="!orderForm.useRandomAmount">
+          <el-col :span="12">
+            <el-form-item label="订单金额">
+              <el-input-number
+                v-model="orderForm.fixedAmount"
+                :precision="2"
+                :min="0.01"
+                :step="0.01"
+                style="width: 100%"
+                placeholder="请输入订单金额"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20" v-if="orderForm.useRandomAmount">
+          <el-col :span="12">
+            <el-form-item label="最小金额">
+              <el-input-number
+                v-model="orderForm.minAmount"
+                :precision="2"
+                :min="0.01"
+                :step="0.01"
+                style="width: 100%"
+                placeholder="请输入最小金额"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="最大金额">
+              <el-input-number
+                v-model="orderForm.maxAmount"
+                :precision="2"
+                :min="0.01"
+                :step="0.01"
+                style="width: 100%"
+                placeholder="请输入最大金额"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="订单数量">
+              <el-input-number
+                v-model="orderForm.orderCount"
+                :min="1"
+                :max="1000"
+                style="width: 100%"
+                placeholder="请输入订单数量"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+    </el-card>
+    
+    <!-- 操作按钮区 -->
+    <el-card class="action-card" shadow="hover">
+      <div class="action-buttons">
+        <el-button type="primary" :icon="VideoPlay" @click="startSimulation" :loading="isRunning" :disabled="isRunning">
+          开始模拟下单
+        </el-button>
+        <el-button type="danger" :icon="VideoPause" @click="stopSimulation" :disabled="!isRunning">
+          终止任务
+        </el-button>
+        <el-button type="warning" :icon="Delete" @click="clearRecords">
+          清空记录
+        </el-button>
+      </div>
+    </el-card>
+    
+    <!-- 模拟订单展示区 -->
+    <el-card class="table-card" shadow="hover">
+      <template #header>
+        <div class="card-header">
+          <span>模拟订单列表</span>
+          <div class="table-stats">
+            <el-tag type="info">总计: {{ orderList.length }}</el-tag>
+          </div>
+        </div>
+      </template>
+      
+      <el-table :data="paginatedOrderList" stripe style="width: 100%" v-loading="tableLoading">
+        <el-table-column prop="orderSn" label="商户订单号" width="200" />
+        <el-table-column prop="orderAmount" label="金额" width="120">
+          <template #default="scope">
+            ¥{{ scope.row.orderAmount.toFixed(2) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="订单状态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="下单时间" width="180" align="center" />
+      </el-table>
+      
+      <!-- 分页 -->
+      <div class="pagination-wrapper">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="orderList.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+    </el-card>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { VideoPlay, VideoPause, Delete, Download } from '@element-plus/icons-vue'
+
+// 表单数据
+const orderForm = reactive({
+  merchantNo: '',
+  apiKey: '',
+  paymentCode: '',
+  useRandomAmount: false,
+  fixedAmount: 100.00,
+  minAmount: 1.00,
+  maxAmount: 1000.00,
+  orderCount: 100
+})
+
+// 商户密钥映射（用于演示）
+const merchantKeys = {
+  'TEST_MERCHANT_001': 'sk_test_001_abcdef123456',
+  'TEST_MERCHANT_002': 'sk_test_002_ghijkl789012',
+  'TEST_MERCHANT_003': 'sk_test_003_mnopqr345678'
+}
+
+// 订单列表
+const orderList = ref([])
+const currentPage = ref(1)
+const pageSize = ref(20)
+const tableLoading = ref(false)
+const isRunning = ref(false)
+
+// 计算属性
+const paginatedOrderList = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return orderList.value.slice(start, end)
+})
+
+
+
+// 商户变更事件
+const onMerchantChange = (value) => {
+  orderForm.apiKey = merchantKeys[value] || ''
+}
+
+// 随机金额开关变更
+const onRandomAmountChange = (value) => {
+  if (value) {
+    orderForm.fixedAmount = 0
+  } else {
+    orderForm.minAmount = 1.00
+    orderForm.maxAmount = 1000.00
+  }
+}
+
+// 开始模拟下单
+const startSimulation = async () => {
+  if (!validateForm()) {
+    return
+  }
+  
+  isRunning.value = true
+  tableLoading.value = true
+  
+  try {
+    // 模拟批量创建订单
+    const newOrders = []
+    for (let i = 0; i < orderForm.orderCount; i++) {
+      const order = generateMockOrder(i)
+      newOrders.push(order)
+      
+      // 模拟异步处理，每10个订单暂停一下
+      if (i % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    
+    orderList.value.unshift(...newOrders)
+    ElMessage.success(`成功创建 ${orderForm.orderCount} 个模拟订单`)
+    
+    // 模拟回调处理
+    await processCallbacks(newOrders)
+    
+  } catch (error) {
+    ElMessage.error('模拟下单失败: ' + error.message)
+  } finally {
+    isRunning.value = false
+    tableLoading.value = false
+  }
+}
+
+// 生成模拟订单
+const generateMockOrder = (index) => {
+  const now = new Date()
+  const orderSn = `SIM${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(index).padStart(4, '0')}`
+  const tradeNum = `TRD${Date.now()}${String(index).padStart(4, '0')}`
+  
+  let amount
+  if (orderForm.useRandomAmount) {
+    amount = Math.random() * (orderForm.maxAmount - orderForm.minAmount) + orderForm.minAmount
+  } else {
+    amount = orderForm.fixedAmount
+  }
+  
+  // 默认使用混合状态策略
+    const statuses = [0, 1, 2, 3, 4, 5, 6]
+    const status = statuses[Math.floor(Math.random() * statuses.length)]
+  
+  return {
+    orderSn,
+    tradeNum,
+    orderAmount: Math.round(amount * 100) / 100,
+    orderStatus: status,
+    createTime: now.toLocaleString()
+  }
+}
+
+// 处理回调
+const processCallbacks = async (orders) => {
+  for (const order of orders) {
+    if (order.orderStatus === 1 || order.orderStatus === 8) {
+      // 模拟回调延迟
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 1000))
+    }
+  }
+}
+
+// 表单验证
+const validateForm = () => {
+  if (!orderForm.merchantNo) {
+    ElMessage.warning('请选择商户号')
+    return false
+  }
+  if (!orderForm.paymentCode) {
+    ElMessage.warning('请选择支付产品编码')
+    return false
+  }
+  if (orderForm.useRandomAmount && orderForm.minAmount >= orderForm.maxAmount) {
+    ElMessage.warning('最小金额必须小于最大金额')
+    return false
+  }
+  if (!orderForm.useRandomAmount && orderForm.fixedAmount <= 0) {
+    ElMessage.warning('订单金额必须大于0')
+    return false
+  }
+  return true
+}
+
+// 终止任务
+const stopSimulation = () => {
+  isRunning.value = false
+  tableLoading.value = false
+  ElMessage.info('任务已终止')
+}
+
+// 清空记录
+const clearRecords = async () => {
+  try {
+    await ElMessageBox.confirm('确定要清空所有订单记录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    orderList.value = []
+    currentPage.value = 1
+    ElMessage.success('记录已清空')
+  } catch {
+    // 用户取消
+  }
+}
+
+
+
+
+
+// 获取状态类型
+const getStatusType = (status) => {
+  const typeMap = {
+    0: 'info',
+    1: 'success',
+    2: 'warning',
+    3: 'danger',
+    4: 'danger',
+    5: 'success',
+    6: 'warning'
+  }
+  return typeMap[status] || 'info'
+}
+
+// 获取状态文本
+const getStatusText = (status) => {
+  const textMap = {
+    0: '订单创建',
+    1: '交易成功',
+    2: '待付款',
+    3: '下单失败',
+    4: '交易撤销',
+    5: '补单成功',
+    6: '交易关闭'
+  }
+  return textMap[status] || '未知'
+}
+
+// 分页事件
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val
+}
+
+// 初始化
+onMounted(() => {
+  // 设置默认值
+  orderForm.merchantNo = 'TEST_MERCHANT_001'
+  orderForm.paymentCode = 'WECHAT_PAY'
+  orderForm.apiKey = 'sk_test_001_abcdef123456'
+})
+</script>
+
+<style scoped>
+.simulate-order-tool {
+  padding: 20px;
+  background-color: #f5f5f5;
+  min-height: 100vh;
+}
+
+.page-header {
+  margin-bottom: 20px;
+  background: white;
+  padding: 16px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.page-header h2 {
+  margin: 0;
+  color: #303133;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.config-card,
+.action-card,
+.table-card {
+  margin-bottom: 20px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.table-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.order-form {
+  padding: 10px 0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.el-card {
+  border-radius: 8px;
+}
+
+.el-button {
+  border-radius: 6px;
+}
+
+.el-input,
+.el-select {
+  border-radius: 6px;
+}
+
+.el-table {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .simulate-order-tool {
+    padding: 10px;
+  }
+  
+  .action-buttons {
+    justify-content: center;
+  }
+  
+  .el-col {
+    margin-bottom: 10px;
+  }
+}
+</style>
