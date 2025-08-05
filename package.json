@@ -1,0 +1,27 @@
+{
+  "name": "pmptest",
+  "version": "1.0.0",
+  "description": "模拟订单工具 - 用于产品经理演示的后台系统原型",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'No build step required for static files' && exit 0",
+    "start": "python3 -m http.server 8080",
+    "dev": "python3 -m http.server 8080"
+  },
+  "keywords": [
+    "vue",
+    "element-plus",
+    "prototype",
+    "order-simulation",
+    "admin-panel"
+  ],
+  "author": "cheeseher",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cheeseher/pmptest.git"
+  },
+  "homepage": "https://github.com/cheeseher/pmptest#readme",
+  "devDependencies": {},
+  "dependencies": {}
+}
